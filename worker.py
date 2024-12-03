@@ -1,5 +1,6 @@
 import logging
 import time
+import random
 from datetime import datetime
 from task_manager import get_next_available_task, mark_task_completed, TIMEOUT_MINUTES
 
@@ -28,8 +29,13 @@ def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=2):
             if task_id:
                 logger.info(f"Worker {worker_id}: Processing Task {task_id}, Data: {task_data}")
 
+                # Simulate random task failure
+                if random.random() < 0.02:  # 20% chance of failure
+                    print(f"Worker {worker_id}: Simulated crash on Task {task_id}")
+                    raise RuntimeError("Simulated crash")
+
                 # Simulate task processing time
-                time.sleep(2)
+                time.sleep(random.uniform(0.5, 2.0))
 
                 # Mark the task as completed
                 mark_task_completed(task_id)

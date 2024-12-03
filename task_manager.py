@@ -1,7 +1,6 @@
 import logging
 from google.cloud import firestore
 from datetime import datetime, timedelta, timezone
-import hashlib
 
 # Initialize Firestore client
 db = firestore.Client()
@@ -15,7 +14,7 @@ TIMEOUT_MINUTES = 1
 logger = logging.getLogger(__name__)
 
 
-def create_new_tasks(data_list, num_shards=10):
+def create_new_tasks(data_list, num_shards=100):
     """
     Create multiple new tasks with a `shard_key` for sharding.
 
@@ -48,6 +47,7 @@ def create_new_tasks(data_list, num_shards=10):
                 "try_count": 0,
                 "shard_key": shard_key
             }
+            logger.info(f"Creating task {task_id} {data} with shard key {shard_key}...")
             task_ref = jobs_ref.document(task_id)
             batch.set(task_ref, task_data)
 
@@ -104,8 +104,13 @@ def get_next_available_task(worker_id, num_workers, num_shards=100, batch_size=1
     timeout_threshold = now - timedelta(minutes=TIMEOUT_MINUTES)
     jobs_ref = db.collection(JOBS_COLLECTION)
 
-    # Determine shards assigned to this worker
-    assigned_shards = [shard for shard in range(num_shards) if shard % num_workers == worker_id]
+    # Calculate the worker's assigned shards
+    num_shards_per_worker = max(num_shards // num_workers, 1)
+    assigned_shards = [(worker_id + i * num_workers) % num_shards for i in range(num_shards_per_worker)]
+
+    logger.info(f"Worker {worker_id}/{num_workers}: shards: {num_shards} => {assigned_shards}")
+    if not assigned_shards:
+        return None, None
 
     # Step 1: Query tasks from the worker's assigned shards
     candidate_tasks = []
@@ -117,6 +122,7 @@ def get_next_available_task(worker_id, num_workers, num_shards=100, batch_size=1
         ).order_by("update").limit(batch_size)
 
         candidate_tasks.extend(list(shard_query.stream()))
+        logger.info(f"Worker {worker_id}: Checking shard {shard_key}...{len(candidate_tasks)}")
 
     # Step 2: If no tasks found, query all shards
     if not candidate_tasks:
@@ -155,21 +161,25 @@ def mark_task_completed_transaction(transaction, task_id):
     task_ref = jobs_ref.document(task_id)
     completed_ref = completed_jobs_ref.document(task_id)
 
+    # Fetch the task document
     snapshot = task_ref.get(transaction=transaction)
     if not snapshot.exists:
-        logger.warning(f"Task {task_id} does not exist.")
+        logger.warning(f"Task {task_id} does not exist in the `jobs` collection.")
         return
 
     task_data = snapshot.to_dict()
 
-    # Add task to `jobs_completed` collection
+    # Move the task to the `jobs_completed` collection
     transaction.set(completed_ref, {
         **task_data,
-        "completed_at": datetime.now(timezone.utc)
+        "completed_at": datetime.now(timezone.utc)  # Add completion timestamp
     })
 
-    # Delete task from `jobs` collection
+    # Delete the task from the `jobs` collection
     transaction.delete(task_ref)
+
+    logger.info(f"Task {task_id} successfully moved to `jobs_completed` and deleted from `jobs`.")
+
 
 
 def mark_task_completed(task_id):
