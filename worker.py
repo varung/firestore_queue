@@ -31,7 +31,7 @@ def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=1):
 
                 # Simulate random task failure
                 if random.random() < 0.02:  # chance of failure
-                    print(f"Worker {worker_id}: Simulated crash on Task {task_id}")
+                    logger.critical(f"Worker {worker_id}: Simulated failure on Task {task_id} Data: {task_data}")
                     raise RuntimeError("Simulated crash")
 
                 # Simulate task processing time
@@ -39,7 +39,7 @@ def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=1):
 
                 # Mark the task as completed
                 mark_task_completed(task_id)
-                logger.info(f"Worker {worker_id}: Completed Task {task_id}")
+                logger.critical(f"Worker {worker_id}: Completed Task {task_id} Data: {task_data}")
 
                 # Reset idle timer after successful task claim
                 start_idle_time = None

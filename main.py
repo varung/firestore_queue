@@ -8,7 +8,7 @@ import os
 
 # Configure logging
 # log module name and level
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s\t - %(message)s")
+logging.basicConfig(level=logging.CRITICAL, format="%(asctime)s - %(levelname)s - %(name)s\t - %(message)s")
 
 
 # Number of shards to distribute tasks across
@@ -24,7 +24,7 @@ def main():
     num_workers = 30
     workers = []
     for i in range(num_workers):
-        p = Process(target=worker, args=(i, 10, num_shards))
+        p = Process(target=worker, args=(i, num_workers, num_shards))
         p.start()
         workers.append(p)
 
