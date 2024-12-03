@@ -8,7 +8,7 @@ from task_manager import get_next_available_task, mark_task_completed, TIMEOUT_M
 logger = logging.getLogger(__name__)
 
 
-def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=2):
+def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=1):
     """
     Simulate a worker processing tasks from its shard. Exits after being idle
     for 2 * TIMEOUT_MINUTES.
@@ -30,12 +30,12 @@ def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=2):
                 logger.info(f"Worker {worker_id}: Processing Task {task_id}, Data: {task_data}")
 
                 # Simulate random task failure
-                if random.random() < 0.02:  # 20% chance of failure
+                if random.random() < 0.02:  # chance of failure
                     print(f"Worker {worker_id}: Simulated crash on Task {task_id}")
                     raise RuntimeError("Simulated crash")
 
                 # Simulate task processing time
-                time.sleep(random.uniform(0.5, 2.0))
+                time.sleep(random.uniform(0.5, 1.0))
 
                 # Mark the task as completed
                 mark_task_completed(task_id)
@@ -55,8 +55,8 @@ def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=2):
                     logger.info(f"Worker {worker_id}: Exiting after being idle for {elapsed_idle_time:.2f} seconds.")
                     break
 
-                logger.info(f"Worker {worker_id}: No tasks available. Sleeping for 5 seconds.")
-                time.sleep(5)
+                logger.info(f"Worker {worker_id}: No tasks available. Sleeping.")
+                time.sleep(30)
 
         except Exception as e:
             logger.error(f"Worker {worker_id}: Error occurred: {e}")

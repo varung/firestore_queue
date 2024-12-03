@@ -8,13 +8,13 @@ db = firestore.Client()
 # Constants
 JOBS_COLLECTION = "jobs"
 COMPLETED_COLLECTION = "jobs_completed"
-TIMEOUT_MINUTES = 1
+TIMEOUT_MINUTES = .5
 
 # Get a logger for this module
 logger = logging.getLogger(__name__)
 
 
-def create_new_tasks(data_list, num_shards=100):
+def create_new_tasks(data_list, num_shards):
     """
     Create multiple new tasks with a `shard_key` for sharding.
 
@@ -76,11 +76,9 @@ def claim_task_transaction(transaction, task_id, timeout_threshold):
     task_ref = jobs_ref.document(task_id)
     snapshot = task_ref.get(transaction=transaction)
 
-    if snapshot.get("update") <= timeout_threshold:
+    if snapshot.exists and snapshot.get("update") <= timeout_threshold:
         now = datetime.now(timezone.utc)
-        transaction.update(task_ref, {
-            "update": now
-        })
+        transaction.update(task_ref, {"update": now})
         return task_id, snapshot.to_dict()["data"]
 
     return None, None
@@ -122,7 +120,7 @@ def get_next_available_task(worker_id, num_workers, num_shards=100, batch_size=1
         ).order_by("update").limit(batch_size)
 
         candidate_tasks.extend(list(shard_query.stream()))
-        logger.info(f"Worker {worker_id}: Checking shard {shard_key}...{len(candidate_tasks)}")
+        # logger.info(f"Worker {worker_id}: Checking shard {shard_key}...{len(candidate_tasks)}")
 
     # Step 2: If no tasks found, query all shards
     if not candidate_tasks:

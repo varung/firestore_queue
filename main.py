@@ -12,16 +12,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 
 # Number of shards to distribute tasks across
-num_shards = 4
+num_shards = 19
 
 
 def main():
     # Step 1: Enqueue tasks
     logging.info("Enqueuing tasks...")
-    enqueue_tasks(num_tasks=10, num_shards=num_shards)
+    enqueue_tasks(num_tasks=100, num_shards=num_shards)
 
     # Step 2: Start worker processes
-    num_workers = 20
+    num_workers = 30
     workers = []
     for i in range(num_workers):
         p = Process(target=worker, args=(i, 10, num_shards))
