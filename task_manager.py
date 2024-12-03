@@ -1,3 +1,4 @@
+import logging
 from google.cloud import firestore
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -10,6 +11,8 @@ JOBS_COLLECTION = "jobs"
 COMPLETED_COLLECTION = "jobs_completed"
 TIMEOUT_MINUTES = 30
 
+# Get a logger for this module
+logger = logging.getLogger(__name__)
 
 def create_new_tasks(data_list, num_shards=10):
     """
@@ -20,7 +23,7 @@ def create_new_tasks(data_list, num_shards=10):
         num_shards (int): Number of shards to distribute tasks across.
     """
     if not data_list:
-        print("No tasks to create. The data list is empty.")
+        logger.warning("No tasks to create. The data list is empty.")
         return
 
     batch_size = 500
@@ -50,9 +53,9 @@ def create_new_tasks(data_list, num_shards=10):
         # Commit the batch
         try:
             batch.commit()
-            print(f"Successfully created {len(batch_data)} tasks (Batch start index: {start}).")
+            logger.info(f"Successfully created {len(batch_data)} tasks (Batch start index: {start}).")
         except Exception as e:
-            print(f"Error occurred while committing batch starting at index {start}: {e}")
+            logger.error(f"Error occurred while committing batch starting at index {start}: {e}")
 
 
 def get_next_available_task(worker_id, num_shards=10, batch_size=10):
@@ -107,7 +110,7 @@ def get_next_available_task(worker_id, num_shards=10, batch_size=10):
                 return result
 
         except Exception as e:
-            print(f"Failed to claim task {task_id}: {e}")
+            logger.error(f"Failed to claim task {task_id}: {e}")
             continue
 
     return None, None
@@ -129,7 +132,7 @@ def mark_task_completed(task_id):
         # Fetch task data
         task_snapshot = jobs_ref.get()
         if not task_snapshot.exists:
-            print(f"Task {task_id} does not exist.")
+            logger.warning(f"Task {task_id} does not exist.")
             return
 
         task_data = task_snapshot.to_dict()
@@ -145,7 +148,7 @@ def mark_task_completed(task_id):
 
         # Commit the batch
         batch.commit()
-        print(f"Task {task_id} successfully marked as completed.")
+        logger.info(f"Task {task_id} successfully marked as completed.")
 
     except Exception as e:
-        print(f"Failed to mark task {task_id} as completed: {e}")
+        logger.error(f"Failed to mark task {task_id} as completed: {e}")
