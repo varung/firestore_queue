@@ -6,9 +6,15 @@ from datetime import datetime, timedelta, timezone
 db = firestore.Client()
 
 # Constants
-JOBS_COLLECTION = "jobs"
-COMPLETED_COLLECTION = "jobs_completed"
+prefix = "cloudrun_"
+prefix = ""
+JOBS_COLLECTION = f"{prefix}jobs"
+COMPLETED_COLLECTION = f"{prefix}jobs_completed"
+FAILED_COLLECTION = f"{prefix}jobs_failed"
+
 TIMEOUT_MINUTES = .5
+NUM_SHARDS = 10
+MAX_RETRIES = 3
 
 # Get a logger for this module
 logger = logging.getLogger(__name__)
@@ -76,10 +82,32 @@ def claim_task_transaction(transaction, task_id, timeout_threshold):
     task_ref = jobs_ref.document(task_id)
     snapshot = task_ref.get(transaction=transaction)
 
-    if snapshot.exists and snapshot.get("update") <= timeout_threshold:
-        now = datetime.now(timezone.utc)
-        transaction.update(task_ref, {"update": now})
-        return task_id, snapshot.to_dict()["data"]
+    if snapshot.exists:
+        task_data = snapshot.to_dict()
+
+        if not task_data:  # Empty task data
+            return None, None
+        new_try_count = task_data.get("try_count", 0) + 1
+        if task_data.get("update") <= timeout_threshold:
+            now = datetime.now(timezone.utc)
+
+            # Update the task with the new update time and try count
+            transaction.update(task_ref, {"update": now, "try_count": new_try_count})
+
+            # If try_count exceeds MAX_RETRIES, move the task to the failed collection
+            if new_try_count > MAX_RETRIES:
+                logger.critical(f"Task {task_id} has excess retries {new_try_count}.")
+                failed_jobs_ref = db.collection(FAILED_COLLECTION)
+                failed_task_ref = failed_jobs_ref.document(task_id)
+                transaction.set(failed_task_ref, {
+                    **task_data,
+                    "failed_at": now
+                })
+                transaction.delete(task_ref)
+                logger.critical(f"Task {task_id} {task_data} moved to `{FAILED_COLLECTION}` due to exceeding max retries.")
+                return None, None
+
+            return task_id, task_data
 
     return None, None
 

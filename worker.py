@@ -8,7 +8,7 @@ from task_manager import get_next_available_task, mark_task_completed, TIMEOUT_M
 logger = logging.getLogger(__name__)
 
 
-def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=1):
+def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=2):
     """
     Simulate a worker processing tasks from its shard. Exits after being idle
     for 2 * TIMEOUT_MINUTES.
@@ -24,14 +24,18 @@ def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=1):
 
     while True:
         try:
-            task_id, task_data = get_next_available_task(worker_id, num_workers, num_shards)
+            task_id, task = get_next_available_task(worker_id, num_workers, num_shards)
+            task_data = task.get('data', {}) if task else {}
 
             if task_id:
-                logger.info(f"Worker {worker_id}: Processing Task {task_id}, Data: {task_data}")
+                # Reset idle timer after successful task claim
+                start_idle_time = None
+
+                logger.info(f"Worker {worker_id}: Processing Task {task_id}, {task}")
 
                 # Simulate random task failure
-                if random.random() < 0.02:  # chance of failure
-                    logger.critical(f"Worker {worker_id}: Simulated failure on Task {task_id} Data: {task_data}")
+                if random.random() < 0.02 or task_data.get('task_number', 0) == 5:  # chance of failure
+                    logger.critical(f"Worker {worker_id}: Simulated failure on Task {task_id} Data: {task}")
                     raise RuntimeError("Simulated crash")
 
                 # Simulate task processing time
@@ -39,10 +43,7 @@ def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=1):
 
                 # Mark the task as completed
                 mark_task_completed(task_id)
-                logger.critical(f"Worker {worker_id}: Completed Task {task_id} Data: {task_data}")
-
-                # Reset idle timer after successful task claim
-                start_idle_time = None
+                logger.critical(f"Worker {worker_id}: Completed Task {task_id} Data: {task}")
             else:
                 # No tasks available; start tracking idle time
                 if start_idle_time is None:
