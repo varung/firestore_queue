@@ -1,27 +1,28 @@
 import logging
+logging.basicConfig(level=logging.CRITICAL, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+
 from multiprocessing import Process
 from enqueue_tasks import enqueue_tasks
 from worker import worker
-from task_manager import NUM_SHARDS
+
 # setup signal handler to kill all workers on ctrl+c
 import signal
 import os
 
 # Configure logging
 # log module name and level
-logging.basicConfig(level=logging.ERROR, format="%(asctime)s - %(levelname)s - %(name)s\t - %(message)s")
 
 
 def main():
     # Step 1: Enqueue tasks
     logging.info("Enqueuing tasks...")
-    enqueue_tasks(num_tasks=100, num_shards=NUM_SHARDS)
+    enqueue_tasks(num_tasks=100)
 
     # Step 2: Start worker processes
     num_workers = 10
     workers = []
     for i in range(num_workers):
-        p = Process(target=worker, args=(i, num_workers, NUM_SHARDS))
+        p = Process(target=worker, args=(i, num_workers))
         p.start()
         workers.append(p)
 

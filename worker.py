@@ -8,7 +8,7 @@ from task_manager import get_next_available_task, mark_task_completed, TIMEOUT_M
 logger = logging.getLogger(__name__)
 
 
-def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=2):
+def worker(worker_id, num_workers, exit_timeout_factor=2):
     """
     Simulate a worker processing tasks from its shard. Exits after being idle
     for 2 * TIMEOUT_MINUTES.
@@ -16,7 +16,6 @@ def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=2):
     Args:
         worker_id (int): The unique ID of the worker.
         num_workers (int): Total number of workers.
-        num_shards (int): Total number of shards.
         exit_timeout_factor (int): Factor to multiply TIMEOUT_MINUTES to determine exit timeout.
     """
     max_idle_time = TIMEOUT_MINUTES * exit_timeout_factor * 60  # Convert minutes to seconds
@@ -24,7 +23,7 @@ def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=2):
 
     while True:
         try:
-            task_id, task = get_next_available_task(worker_id, num_workers, num_shards)
+            task_id, task = get_next_available_task(worker_id, num_workers)
             task_data = task.get('data', {}) if task else {}
 
             if task_id:
@@ -43,7 +42,7 @@ def worker(worker_id, num_workers, num_shards=10, exit_timeout_factor=2):
 
                 # Mark the task as completed
                 mark_task_completed(task_id)
-                logger.critical(f"Worker {worker_id}: Completed Task {task_id} Data: {task}")
+                logger.critical(f"Worker {worker_id}: Completed Task {task_id} Tries: {task.get('try_count')} Data: {task_data.get('task_number')}")
             else:
                 # No tasks available; start tracking idle time
                 if start_idle_time is None:

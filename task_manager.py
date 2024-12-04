@@ -1,10 +1,13 @@
 import logging
 from google.cloud import firestore
 from datetime import datetime, timedelta, timezone
+# Get a logger for this module
+logger = logging.getLogger(__name__)
 
 # Initialize Firestore client
 db = firestore.Client()
 
+# conceptually member properties of a queue class
 # Constants
 prefix = "cloudrun_"
 prefix = ""
@@ -14,19 +17,15 @@ FAILED_COLLECTION = f"{prefix}jobs_failed"
 
 TIMEOUT_MINUTES = .5
 NUM_SHARDS = 10
-MAX_RETRIES = 3
-
-# Get a logger for this module
-logger = logging.getLogger(__name__)
+MAX_TRIES = 2
 
 
-def create_new_tasks(data_list, num_shards):
+def create_new_tasks(data_list):
     """
     Create multiple new tasks with a `shard_key` for sharding.
 
     Args:
         data_list (list): List of dictionaries, where each dictionary contains task data.
-        num_shards (int): Number of shards to distribute tasks across.
     """
     if not data_list:
         logger.warning("No tasks to create. The data list is empty.")
@@ -44,7 +43,7 @@ def create_new_tasks(data_list, num_shards):
         for data in batch_data:
             # Generate a unique task ID and compute the shard key
             task_id = jobs_ref.document().id
-            shard_key = hash(task_id) % num_shards
+            shard_key = hash(task_id) % NUM_SHARDS
 
             # Prepare the task document
             task_data = {
@@ -76,7 +75,7 @@ def claim_task_transaction(transaction, task_id, timeout_threshold):
         timeout_threshold (datetime): The cutoff time for task availability.
 
     Returns:
-        Tuple of (task_id, task_data) if successfully claimed, otherwise (None, None).
+        Tuple of (task_id, task_data, reason) if successfully claimed, otherwise (None, None).
     """
     jobs_ref = db.collection(JOBS_COLLECTION)
     task_ref = jobs_ref.document(task_id)
@@ -84,19 +83,20 @@ def claim_task_transaction(transaction, task_id, timeout_threshold):
 
     if snapshot.exists:
         task_data = snapshot.to_dict()
-
         if not task_data:  # Empty task data
-            return None, None
+            return None, None, "EMPTY_TASK_DATA"
+
         new_try_count = task_data.get("try_count", 0) + 1
-        if task_data.get("update") <= timeout_threshold:
+        update = task_data.get("update")
+        if update <= timeout_threshold:
             now = datetime.now(timezone.utc)
 
             # Update the task with the new update time and try count
             transaction.update(task_ref, {"update": now, "try_count": new_try_count})
 
-            # If try_count exceeds MAX_RETRIES, move the task to the failed collection
-            if new_try_count > MAX_RETRIES:
-                logger.critical(f"Task {task_id} has excess retries {new_try_count}.")
+            # If try_count exceeds MAX_TRIES, move the task to the failed collection
+            if new_try_count > MAX_TRIES:
+                # logger.critical(f"Task {task_id} has excess retries {new_try_count}.")
                 failed_jobs_ref = db.collection(FAILED_COLLECTION)
                 failed_task_ref = failed_jobs_ref.document(task_id)
                 transaction.set(failed_task_ref, {
@@ -104,15 +104,17 @@ def claim_task_transaction(transaction, task_id, timeout_threshold):
                     "failed_at": now
                 })
                 transaction.delete(task_ref)
-                logger.critical(f"Task {task_id} {task_data} moved to `{FAILED_COLLECTION}` due to exceeding max retries.")
-                return None, None
+                # logger.critical(f"Task {task_id} {task_data} moved to `{FAILED_COLLECTION}` due to exceeding max retries.")
+                return None, None, "EXCESS_RETRIES"
+            else:
+                return task_id, task_data, None
+        else:
+            return None, None, f"TASK_LEASED {task_id} {update} > {timeout_threshold}"
+    else:
+        return None, None, f"NO_SNAPSHOT for {task_id}"
 
-            return task_id, task_data
 
-    return None, None
-
-
-def get_next_available_task(worker_id, num_workers, num_shards=100, batch_size=10):
+def get_next_available_task(worker_id, num_workers, batch_size=10):
     """
     Retrieve the next available task for the worker. Initially queries assigned shards,
     and defaults to querying all shards if no tasks are found.
@@ -120,7 +122,6 @@ def get_next_available_task(worker_id, num_workers, num_shards=100, batch_size=1
     Args:
         worker_id (int): The unique ID of the worker.
         num_workers (int): Total number of workers.
-        num_shards (int): Total number of shards.
         batch_size (int): Number of tasks to fetch in the initial query.
 
     Returns:
@@ -131,10 +132,10 @@ def get_next_available_task(worker_id, num_workers, num_shards=100, batch_size=1
     jobs_ref = db.collection(JOBS_COLLECTION)
 
     # Calculate the worker's assigned shards
-    num_shards_per_worker = max(num_shards // num_workers, 1)
-    assigned_shards = [(worker_id + i * num_workers) % num_shards for i in range(num_shards_per_worker)]
+    num_shards_per_worker = max(NUM_SHARDS // num_workers, 1)
+    assigned_shards = [(worker_id + i * num_workers) % NUM_SHARDS for i in range(num_shards_per_worker)]
 
-    logger.info(f"Worker {worker_id}/{num_workers}: shards: {num_shards} => {assigned_shards}")
+    logger.info(f"Worker {worker_id}/{num_workers}: shards: {NUM_SHARDS} => {assigned_shards}")
     if not assigned_shards:
         return None, None
 
@@ -158,13 +159,16 @@ def get_next_available_task(worker_id, num_workers, num_shards=100, batch_size=1
         ).order_by("update").limit(batch_size)
         candidate_tasks = list(all_shard_query.stream())
 
+    logger.info(f"Worker {worker_id}: Found {len(candidate_tasks)} tasks")
     # Attempt to claim a task transactionally
     for candidate_task in candidate_tasks[:batch_size]:
         task_id = candidate_task.id
         try:
-            result = claim_task_transaction(db.transaction(), task_id, timeout_threshold)
-            if result[0]:
-                return result
+            tid, task, reason = claim_task_transaction(db.transaction(), task_id, timeout_threshold)
+            if reason:
+                logger.warning(f"Worker {worker_id}: Task {task_id} not claimed: {reason}")
+            elif tid:
+                return (tid, task)
         except Exception as e:
             logger.error(f"Worker {worker_id}: Failed to claim task {task_id}: {e}")
             continue
