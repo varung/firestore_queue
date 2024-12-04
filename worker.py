@@ -34,7 +34,7 @@ def worker(worker_id, num_workers, exit_timeout_factor=2):
 
                 # Simulate random task failure
                 if random.random() < 0.02 or task_data.get('task_number', 0) == 5:  # chance of failure
-                    logger.critical(f"Worker {worker_id}: Simulated failure on Task {task_id} Data: {task}")
+                    logger.critical(f"Worker {worker_id}: Simulated failure on Task {task_id} Tries: {task.get('try_count')} Data: {task_data.get('task_number')}")
                     raise RuntimeError("Simulated crash")
 
                 # Simulate task processing time
